@@ -72,7 +72,7 @@ class SimplePearsonEngine(Memoized):
             assert ((self.preferences > 0) | 
                     (self.preferences.isnull())).all().all(), "Preferences can be in {NaN, positive int}."
     
-    def preload(self):
+    def preload(self, verbose=False):
         """
         Preload recommendations into cache backend for faster response.
         """
@@ -80,7 +80,8 @@ class SimplePearsonEngine(Memoized):
         rows, cols = self.preferences.index, self.preferences.columns
         totrows = len(rows)
         totcols = len(cols)
-        print "About to preload %d elements into cache backend..." % (totrows + totcols)
+        if verbose:
+            print "About to preload %d elements into cache backend..." % (totrows + totcols)
         args_list_1 = [
             # similarities
             # run _similar_ix_inner for ALL rows and columns
@@ -89,12 +90,15 @@ class SimplePearsonEngine(Memoized):
             # for cols => col name and transpose=True
             ("\nPreloading column (item) similarities...", cols, True, totcols)]
         for args in args_list_1:
-            print args[0]
+            if verbose:
+                print args[0]
             for i, ix in enumerate(args[1]):
                 _ = self._similar_ix_inner(ix1=ix, transpose=args[2])
-                sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
-                sys.stdout.flush()
-        print
+                if verbose:
+                    sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
+                    sys.stdout.flush()
+        if verbose:
+            print
         args_list_2 = [
             # now column based recommendations
             # run similar_ix for ALL rows and columns with only_positive_corr=True, n=None
@@ -104,13 +108,16 @@ class SimplePearsonEngine(Memoized):
             # cols => col name, transpose=True, only_positive_corr=True, n=None
             ("\nPreloading row (user) based recommendations for columns (items)...", cols, True, totcols)]
         for args in args_list_2:
-            print args[0]
+            if verbose:
+                print args[0]
             for i, ix in enumerate(args[1]):
                 _ = self.similar_ix(ix1=ix, transpose=args[2], n=None, only_positive_corr=True)
-                sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
-                sys.stdout.flush()
-        print
-        print "Done in %s secs." % str(time.time() - start)        
+                if verbose:
+                    sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
+                    sys.stdout.flush()
+        if verbose:
+            print
+            print "Done in %s secs." % str(time.time() - start)        
     
     def similar_users(self, user_id, n=None, only_positive_corr=True):
         """
@@ -128,7 +135,7 @@ class SimplePearsonEngine(Memoized):
         Returns a ranked list of similar items.
         """
         # similar_ix: ix1, transpose=False, n=None, only_positive_corr=False
-        return self.similar_ix({
+        return self.similar_ix(**{
             'ix1': item_id,
             'n': n,
             'only_positive_corr': only_positive_corr,
@@ -185,9 +192,14 @@ class SimplePearsonEngine(Memoized):
         # transpose dataframe?
         df = self.preferences.transpose() if transpose else self.preferences
         _pcorr = lambda i, j: df.ix[[i, j]].transpose().corr().fillna(0, inplace=False).loc[i, j]
+        def _inner(i,j):
+            try:
+                return _pcorr(i, j)
+            except:
+                raise Exception(", ".join([str(i), str(j)]))
         # this returns an unsorted list of similarities. there is *no value checking at all*,
         # so use wrapping methods, such as similar_ix or recommend_cols to acces these values
-        return [(_pcorr(ix1, ix2), ix2) for ix2 in df.index if ix1 != ix2]
+        return [(_inner(ix1, ix2), ix2) for ix2 in df.index if ix1 != ix2]
     
     @memoize
     def similar_ix(self, ix1, transpose=False, n=None, only_positive_corr=False):

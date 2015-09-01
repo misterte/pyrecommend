@@ -24,16 +24,16 @@ class TestPyrecommend(unittest.TestCase):
         self.engine_nan.preload()
         self.engine_binary = SPE(fixtures.DFCRITICS_BINARY, SPE.BINARY)
         self.engine_binary.preload()
-    
+        
     # tests
     # helper
     def _test_helper(self, ix, func1, func2, binary=False):
         A = [sim for sim in func1(ix) if sim[0] > 0.0]
         B = [sim for sim in func2(ix, binary=binary) if sim[0] > 0.0]
         for a, b in zip(A, B):
-            fname = func1.__name__
-            self.assertAlmostEqual(a[0], b[0], 
-                places=5, message="f=%s; ix=%s" % (func1.__name__, str(ix)))
+            #fname = func1.__name__
+            self.assertAlmostEqual(a[0], b[0], places=5)
+            #places=5, message="f=%s; ix=%s" % (func1.__name__, str(ix)))
     
     # for rating_nan
     # test similarities

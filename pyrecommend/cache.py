@@ -2,8 +2,18 @@ import sqlitedict
 import tempfile
 from functools import wraps
 import inspect
+import weakref
 
 
+class MySqliteDict(sqlitedict.SqliteDict):
+    """
+    Avoids calling __del__ on an already deleted reference.
+    """
+    def __del__(self):
+        try:
+            super(MySqliteDict, self).__del__
+        except:
+            pass
 
 
 class SQLiteCacheBackend(object):
@@ -14,10 +24,11 @@ class SQLiteCacheBackend(object):
         # create tempfile
         _, self.fname = tempfile.mkstemp(suffix='.db')
         # create cache
-        self.cache = sqlitedict.SqliteDict(self.fname, autocommit=True)
+        self.cache = MySqliteDict(self.fname, autocommit=True)
     
     def __del__(self):
-        # remove cache file
+        # try to remove cache file
+        import os
         os.remove(self.fname)
     
     def __setitem__(self, key, value):

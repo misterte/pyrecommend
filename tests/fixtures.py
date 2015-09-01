@@ -98,6 +98,7 @@ def to_dict_dropna(df):
 def _similar_ix(df, ix1):
     """
     Return a sorted list of pearson-similar indexes, for a given index and dataframe.
+    Only positive corr.
     """
     _pcorr = lambda i, j: df.ix[[i, j]].transpose().corr().fillna(0, inplace=False).loc[i, j]
     similar = [(_pcorr(ix1, ix2), ix2) for ix2 in df.index if ix1 != ix2]
@@ -106,14 +107,14 @@ def _similar_ix(df, ix1):
     return sorted(similar, reverse=True)
 
 
-COLSIMS_NAN = {ix: _similar_ix(DFCRITICS_NAN.transpose(), ix, only_positive_corr=True) 
+COLSIMS_NAN = {ix: _similar_ix(DFCRITICS_NAN.transpose(), ix) 
         for ix in DFCRITICS_NAN.transpose().index}
-COLSIMS_BINARY = {ix: _similar_ix(DFCRITICS_BINARY.transpose(), ix, only_positive_corr=True) 
+COLSIMS_BINARY = {ix: _similar_ix(DFCRITICS_BINARY.transpose(), ix) 
         for ix in DFCRITICS_BINARY.transpose().index}
 
-ROWSIMS_NAN = {ix: _similar_ix(DFCRITICS_NAN, ix, only_positive_corr=True) 
+ROWSIMS_NAN = {ix: _similar_ix(DFCRITICS_NAN, ix) 
         for ix in DFCRITICS_NAN.index}
-ROWSIMS_BINARY = {ix: _similar_ix(DFCRITICS_BINARY, ix, only_positive_corr=True) 
+ROWSIMS_BINARY = {ix: _similar_ix(DFCRITICS_BINARY, ix) 
         for ix in DFCRITICS_BINARY.index}
 
 
@@ -325,7 +326,7 @@ def recommend_items_bycol(user, binary=False):
     Wraps get_recommended_items in order to recommend items for users via item based recs.
     """
     prefs = CRITICS_BINARY if binary else CRITICS_NAN
-    sims = COLSIMS_BINARY if binary else COLSIMIS_NAN
+    sims = COLSIMS_BINARY if binary else COLSIMS_NAN
     return get_recommended_items(prefs, sims, user)
 
 def recommend_users_bycol(item, binary=False):
