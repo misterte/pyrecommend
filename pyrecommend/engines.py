@@ -75,6 +75,8 @@ class SimplePearsonEngine(Memoized):
     def preload(self, verbose=False):
         """
         Preload recommendations into cache backend for faster response.
+        
+        TODO: make this thread safe with multithreading.Pool.map
         """
         start = time.time()
         rows, cols = self.preferences.index, self.preferences.columns
@@ -119,6 +121,7 @@ class SimplePearsonEngine(Memoized):
             print
             print "Done in %s secs." % str(time.time() - start)        
     
+    @memoize
     def similar_users(self, user_id, n=None, only_positive_corr=True):
         """
         Returns a ranked list of similart users.
@@ -130,6 +133,7 @@ class SimplePearsonEngine(Memoized):
                 'only_positive_corr': only_positive_corr,
                 'transpose': False})
     
+    @memoize
     def similar_items(self, item_id, n=None, only_positive_corr=True):
         """
         Returns a ranked list of similar items.
@@ -141,6 +145,7 @@ class SimplePearsonEngine(Memoized):
             'only_positive_corr': only_positive_corr,
             'transpose': True})
     
+    @memoize
     def recommend_items(self, user_id, n=None, only_positive_corr=True, method=USER_BASED):
         """
         Returns a ranked list of recommended items for a user, using a row or column based approach.
@@ -161,6 +166,7 @@ class SimplePearsonEngine(Memoized):
         kwargs.pop('only_positive_corr')
         return self.recommend_cols_bycol(**kwargs)
     
+    @memoize
     def recommend_users(self, item_id, n=None, only_positive_corr=True, method=ITEM_BASED):
         """
         Returns a ranked list of recommended users for an item, using a row or column based approach. 
@@ -201,7 +207,6 @@ class SimplePearsonEngine(Memoized):
         # so use wrapping methods, such as similar_ix or recommend_cols to acces these values
         return [(_inner(ix1, ix2), ix2) for ix2 in df.index if ix1 != ix2]
     
-    @memoize
     def similar_ix(self, ix1, transpose=False, n=None, only_positive_corr=False):
         """
         Return a sorted list of pearson-similar indexes, for a given index and dataframe.
@@ -213,13 +218,13 @@ class SimplePearsonEngine(Memoized):
         n = n if (type(n) is int and n > 0) else len(similar)
         return sorted(similar, reverse=True)[:n]
     
-    @memoize
     def recommend_cols(self, ix, transpose=False, only_positive_corr=True, n=None, binary=False):
         """
         Return row based recommended columns for specific index.
         """
         assert type(transpose) is bool
         assert type(binary) is bool
+        
         # first get similar rows by score and unreviewed cols for ix
         # similar_ix: ix1, transpose, n, only_positive_corr
         sims = self.similar_ix(**{
@@ -233,6 +238,7 @@ class SimplePearsonEngine(Memoized):
         # we have sims, let's move on
         # transpose df?
         df = self.preferences.transpose() if transpose else self.preferences
+        # get similarities 
         sim_score, index = map(np.asarray, zip(*sims))
         not_reviewed = df.columns[df.ix[ix].fillna(0) == 0]
         # filter relevant info
@@ -241,13 +247,20 @@ class SimplePearsonEngine(Memoized):
             return []
         # calculate weighted ratings
         weighted_ratings = df_sub.apply(lambda x: x*sim_score).sum()
-        # sum relevant similarity scores
-        sum_sim_score = (df_sub > 0).apply(lambda x: x*sim_score).sum()
-        # recommended columns are normalized by sum of sim scores
-        # but not in the case of binary data, as "ratings" are equivalent to column popularity
-        recs = weighted_ratings/sum_sim_score if not binary else weighted_ratings
-        # are there any np.nan values in recs?
-        recs = recs[~recs.isnull()]
+        # sum similarity scores in order to normalize weighted 
+        # ratings -- we don't want a very popular column to bias recommendations
+        # in the case of rating engines, we just need to add anyting that is > 0
+        # but in the case of binary engines, rating 0 is the same as "reviewing 0",
+        # which means that we have to take into account all similarity scores and 
+        # not just the "active" ones
+        sum_sim_score = sim_score.sum() if binary else (df_sub > 0).apply(lambda x: x*sim_score).sum()
+        # recommended columns are now normalized by sum of sim scores
+        recs = weighted_ratings/sum_sim_score
+        # are there any np.nan values or zero values in recs?
+        # we may still have these, as only_positive_corr only 
+        # assures positively correlated rows, but has nothing 
+        # to say about which col values can be considered "active"
+        recs = recs[recs > 0]
         n = n if (type(n) is int and n > 0) else len(recs)
         return sorted(zip(recs.values, recs.index), reverse=True)[:n]
     
@@ -298,10 +311,53 @@ class SimplePearsonEngine(Memoized):
         # 1. add a similarity*rating column
         # 2. group by recommended_column, aggregating by sum simmilarity*rating and simmilarity
         dfconcat['similarity*rating'] = dfconcat['similarity']*dfconcat['rating']
+        # dfconcat will have some 0 value rows when working with binary data
         dfagg = dfconcat.groupby(['recommended_column']).agg({'similarity': 'sum', 'similarity*rating': 'sum'})
-        # normalization is is only required if we are using binary data
-        recs = (dfagg['similarity*rating']/dfagg['similarity']) if not binary else dfagg['similarity*rating']
+        # now we need to normalize values, as very popular columns can bias our recommendations.
+        # this is a bit tricky when it comes to binary data, as "not reviewing" is a review itself
+        # and therefore we should consider the sum of all similarities (or averaged similarity for all columns)
+        # when we are dealing with rating engines, we only need the sum of similarities for reviewed columns
+        recs = (dfagg['similarity*rating']/dfagg['similarity']) if not binary \
+                else (dfagg['similarity*rating']/dfagg['similarity'].sum())
+        # are there any np.nan values or zero values in recs?
+        # we may still have these, as only_positive_corr only 
+        # assures positively correlated rows, but has nothing 
+        # to say about which col values can be considered "active"
+        recs = recs[recs > 0]
         # return the 'n' top elements
         n = n if (type(n) is int and n > 0) else recs.count()
         return sorted(zip(recs.values, recs.index), reverse=True)[:n]
-    
+
+
+class SimpleJaccardEngine(SimplePearsonEngine):
+    """
+    Much like the pearson engine, but based on Jaccard similarity. This engine works better 
+    when sparcity is an issue, as it only considers interesection and union of preferences 
+    between rows. Also, note that either using binary, rating or using NaN vs 0 has no real 
+    effect on the similarities, though it may have effect on recommendations, due to ratings.
+    """
+    @memoize
+    def _similar_ix_inner(self, ix1, transpose=False):
+        """
+        This method returns every similar_ix to ix1. The idea is to avoid 
+        recalculating similar_ix for different values of n and only_positive_corr.
+        
+        This is the *core method of the engine*, so it needs to be very efficient.
+        """
+        # transpose dataframe?
+        # also note that in this case non-rated columns don't matter
+        df = (self.preferences.transpose() if transpose else self.preferences).fillna(0)
+        def _inner(i,j):
+            try:
+                # get columns that are effectively rated
+                si, sj = map(lambda value: set(value[1][value[1] != 0].index), df.ix[[i,j]].iterrows())
+                # intersection vs union of sets
+                num = len(si & sj)
+                den = float(len(si | sj))
+                # jaccard or 0.0
+                return num/den if den else 0.0
+            except:
+                raise Exception(", ".join([str(i), str(j)]))
+        # this returns an *unsorted* list of similarities. there is *no value checking at all*,
+        # so use wrapping methods, such as similar_ix or recommend_cols to acces these values
+        return [(_inner(ix1, ix2), ix2) for ix2 in df.index if ix1 != ix2]
