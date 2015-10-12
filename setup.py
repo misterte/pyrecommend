@@ -15,13 +15,15 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read().replace('.. :changelog:', '')
 
 requirements = [
-    'numpy',
-    'pandas'
+    'numpy>=1.9.2',
+    'pandas>=0.16.2',
+    'progressbar2>=3.3.0'
 ]
 
 test_requirements = [
-    'numpy',
-    'pandas'
+    'numpy>=1.9.2',
+    'pandas>=0.16.2',
+    'progressbar2>=3.3.0'
 ]
 
 setup(
