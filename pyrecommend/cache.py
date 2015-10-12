@@ -11,7 +11,7 @@ class MySqliteDict(sqlitedict.SqliteDict):
     """
     def __del__(self):
         try:
-            super(MySqliteDict, self).__del__
+            super(MySqliteDict, self).__del__()
         except:
             pass
 
@@ -29,7 +29,10 @@ class SQLiteCacheBackend(object):
     def __del__(self):
         # try to remove cache file
         import os
-        os.remove(self.fname)
+        try:
+            os.remove(self.fname)
+        except:
+            pass
     
     def __setitem__(self, key, value):
         self.cache[key] = value

@@ -21,9 +21,9 @@ class TestPyrecommend(unittest.TestCase):
         Preload an engine, sim_rows and sim_cols for column based recommendations.
         """
         self.engine_nan = SPE(fixtures.DFCRITICS_NAN, SPE.RATING_NAN)
-        self.engine_nan.preload()
+        self.engine_nan.preload(verbose=False)
         self.engine_binary = SPE(fixtures.DFCRITICS_BINARY, SPE.BINARY)
-        self.engine_binary.preload()
+        self.engine_binary.preload(verbose=False)
 
     # tests
     # helper

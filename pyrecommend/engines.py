@@ -1,10 +1,10 @@
 import sys
+import os
+import time
 import pandas as pd
 import numpy as np
-import time
+import progressbar
 from pyrecommend.cache import memoize, Memoized
-
-
 
 
 # constants
@@ -72,54 +72,59 @@ class SimplePearsonEngine(Memoized):
             assert ((self.preferences > 0) | 
                     (self.preferences.isnull())).all().all(), "Preferences can be in {NaN, positive int}."
     
-    def preload(self, verbose=False):
+    def save(self, directory):
+        """
+        TODO
+        Saves engine in a directory. Creates directory if it does not exists and overwrites any 
+        file contained in it matching engine file names. Saves preferences df into a csv and 
+        calls the save method in the memoize_backend.
+        """
+        raise NotImplementedError
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        self.preferences.to_csv(os.path.join(directory, 'preferences.csv'), index=True, encoding='utf8')
+        with open(os.path.join(directory, 'kind'), 'w') as f:
+            f.write(self.kind)
+        self.memoize_backend.save(directory)
+    
+    @classmethod
+    def load(cls, directory):
+        """
+        TODO
+        Creates a new engine from stored files in directory. It will retrieve preferences from a csv 
+        and call the memoize_backend.load method.
+        """
+        raise NotImplementedError
+        preferences = pd.read_csv(os.path.join(directory, 'preferences.csv'), index_col=0, encoding='utf8')
+        with open(os.path.join(directory, 'kind'), 'r') as f:
+            kind = f.read()
+        engine = cls(preferences=preferences, kind=kind)
+        pass
+        
+    
+    def preload(self, verbose=True):
         """
         Preload recommendations into cache backend for faster response.
-        
-        TODO: make this thread safe with multithreading.Pool.map
         """
-        start = time.time()
         rows, cols = self.preferences.index, self.preferences.columns
+        if not verbose:
+            for row in rows:
+                _ = self._similar_ix_inner(ix1=row, transpose=False)
+            for col in cols:
+                _ = self._similar_ix_inner(ix1=col, transpose=True)
+            return
         totrows = len(rows)
         totcols = len(cols)
-        if verbose:
-            print "About to preload %d elements into cache backend..." % (totrows + totcols)
-        args_list_1 = [
-            # similarities
-            # run _similar_ix_inner for ALL rows and columns
-            # for rows => row ix and transpose=False
-            ("Preloading row (user) similarities...", rows, False, totrows),
-            # for cols => col name and transpose=True
-            ("\nPreloading column (item) similarities...", cols, True, totcols)]
-        for args in args_list_1:
-            if verbose:
-                print args[0]
-            for i, ix in enumerate(args[1]):
-                _ = self._similar_ix_inner(ix1=ix, transpose=args[2])
-                if verbose:
-                    sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
-                    sys.stdout.flush()
-        if verbose:
-            print
-        args_list_2 = [
-            # now column based recommendations
-            # run similar_ix for ALL rows and columns with only_positive_corr=True, n=None
-            # this will create a cache for recommend_col_bycol
-            # rows => row ix, transpose=False, only_positive_corr=True, n=None
-            ("Preloading column (item) based recommendations for rows (users)...", rows, False, totrows),
-            # cols => col name, transpose=True, only_positive_corr=True, n=None
-            ("\nPreloading row (user) based recommendations for columns (items)...", cols, True, totcols)]
-        for args in args_list_2:
-            if verbose:
-                print args[0]
-            for i, ix in enumerate(args[1]):
-                _ = self.similar_ix(ix1=ix, transpose=args[2], n=None, only_positive_corr=True)
-                if verbose:
-                    sys.stdout.write('\r%d%%' % (100*(i+1)/float(args[3])))
-                    sys.stdout.flush()
-        if verbose:
-            print
-            print "Done in %s secs." % str(time.time() - start)        
+        with progressbar.ProgressBar(max_value=totrows+totcols) as progress:
+            i = 0
+            # preload row (user) similarities
+            for row in rows:
+                _ = self._similar_ix_inner(ix1=row, transpose=False)
+                progress.update(++i)
+            # preload column (item) similarities
+            for col in cols:
+                _ = self._similar_ix_inner(ix1=col, transpose=True)
+                progress.update(++i)
     
     @memoize
     def similar_users(self, user_id, n=None, only_positive_corr=True):
