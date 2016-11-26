@@ -120,11 +120,13 @@ class SimplePearsonEngine(Memoized):
             # preload row (user) similarities
             for row in rows:
                 _ = self._similar_ix_inner(ix1=row, transpose=False)
-                progress.update(++i)
+                i += 1
+                progress.update(i)
             # preload column (item) similarities
             for col in cols:
                 _ = self._similar_ix_inner(ix1=col, transpose=True)
-                progress.update(++i)
+                i += 1
+                progress.update(i)
     
     @memoize
     def similar_users(self, user_id, n=None, only_positive_corr=True):
